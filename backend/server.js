@@ -23,12 +23,12 @@ if (!mongoURI) {
 const PORT = process.env.PORT || 3001;
 mongoose.connect(mongoURI)
   .then(() => {
-    console.log('✅ MongoDB Connected');
+    console.log("MongoDB Connected ✅");
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on port ${PORT}`);
     });
   })
-  .catch((err) => console.error('❌ Mongo Error:', err));
+  .catch((err) => console.log("Mongo Error:", err));
 
 const clientSchema = new mongoose.Schema({
   id: { type: String, unique: true, required: true },
