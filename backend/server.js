@@ -16,16 +16,16 @@ app.use(express.json());
 
 const mongoURI = process.env.MONGO_URI;
 if (!mongoURI) {
-  console.error('MONGO_URI is not defined in .env file');
+  console.log('❌ MONGO_URI is missing');
   process.exit(1);
 }
 
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 mongoose.connect(mongoURI)
   .then(() => {
     console.log('✅ MongoDB Connected');
     app.listen(PORT, '0.0.0.0', () => {
-      console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
+      console.log(`🚀 Server running on port ${PORT}`);
     });
   })
   .catch((err) => console.error('❌ Mongo Error:', err));
