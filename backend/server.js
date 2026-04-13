@@ -16,8 +16,7 @@ app.use(express.json());
 
 const mongoURI = process.env.MONGO_URI;
 if (!mongoURI) {
-  console.log('❌ MONGO_URI is missing');
-  process.exit(1);
+  console.log('⚠️ MONGO_URI not found');
 }
 
 const PORT = process.env.PORT || 3001;
