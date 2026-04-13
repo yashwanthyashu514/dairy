@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Tejas Dairy</string>
+    <string name="title_activity_main">Tejas Dairy</string>
+    <string name="package_name">com.tejas.dairy</string>
+    <string name="custom_url_scheme">com.tejas.dairy</string>
+</resources>

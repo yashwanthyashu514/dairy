@@ -1,8 +1,11 @@
 import express from 'express';
 import cors from 'cors';
-import sqlite3 from 'sqlite3';
+import mongoose from 'mongoose';
+import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import path from 'path';
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,56 +14,58 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const dbPath = path.resolve(__dirname, 'database.sqlite');
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) console.error('Error connecting to database', err);
-  else console.log('Connected to SQLite database.');
+const mongoURI = process.env.MONGO_URI;
+if (!mongoURI) {
+  console.error('MONGO_URI is not defined in .env file');
+  process.exit(1);
+}
+
+const PORT = 3001;
+mongoose.connect(mongoURI)
+  .then(() => {
+    console.log('✅ MongoDB Connected');
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
+    });
+  })
+  .catch((err) => console.error('❌ Mongo Error:', err));
+
+const clientSchema = new mongoose.Schema({
+  id: { type: String, unique: true, required: true },
+  name: String,
+  phone: String,
+  whatsapp: String,
+  address: String,
+  account_number: String,
+  ifsc: String,
+  joined_date: String
 });
+const Client = mongoose.model('Client', clientSchema);
 
-// Setup tables
-db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS clients (
-    id TEXT PRIMARY KEY,
-    name TEXT,
-    phone TEXT,
-    whatsapp TEXT,
-    address TEXT,
-    account_number TEXT,
-    ifsc TEXT,
-    joined_date TEXT
-  )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS milk_entries (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    client_id TEXT,
-    date TEXT,
-    session TEXT,
-    weight REAL,
-    snf REAL,
-    fat REAL,
-    rate REAL,
-    total REAL
-  )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS payments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    client_id TEXT,
-    amount REAL,
-    date TEXT,
-    note TEXT
-  )`);
+const milkEntrySchema = new mongoose.Schema({
+  client_id: String,
+  date: String,
+  session: String,
+  weight: Number,
+  snf: Number,
+  fat: Number,
+  rate: Number,
+  total: Number
 });
+const MilkEntry = mongoose.model('MilkEntry', milkEntrySchema);
 
-const dbAll = (sql, params = []) => new Promise((resolve, reject) => db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows)));
-const dbGet = (sql, params = []) => new Promise((resolve, reject) => db.get(sql, params, (err, row) => err ? reject(err) : resolve(row)));
-const dbRun = (sql, params = []) => new Promise((resolve, reject) => {
-  db.run(sql, params, function (err) { err ? reject(err) : resolve(this); });
+const paymentSchema = new mongoose.Schema({
+  client_id: String,
+  amount: Number,
+  date: String,
+  note: String
 });
+const Payment = mongoose.model('Payment', paymentSchema);
 
 // API Routes
 app.get('/api/clients', async (req, res) => {
   try {
-    const clients = await dbAll('SELECT * FROM clients');
+    const clients = await Client.find().sort({ id: 1 }).lean();
     res.json(clients);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -68,27 +73,26 @@ app.get('/api/clients', async (req, res) => {
 app.post('/api/clients', async (req, res) => {
   try {
     const { name, phone, whatsapp, address, account_number, ifsc } = req.body;
-    const row = await dbGet('SELECT COUNT(*) as count FROM clients');
-    const newIdNum = row.count + 1;
+    const count = await Client.countDocuments();
+    const newIdNum = count + 1;
     const clientId = `TD${String(newIdNum).padStart(3, '0')}`;
     const joined_date = new Date().toISOString().split('T')[0];
 
-    await dbRun(
-      'INSERT INTO clients (id, name, phone, whatsapp, address, account_number, ifsc, joined_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [clientId, name, phone, whatsapp, address, account_number, ifsc, joined_date]
-    );
+    const client = new Client({
+      id: clientId, name, phone, whatsapp, address, account_number, ifsc, joined_date
+    });
+    await client.save();
     res.json({ id: clientId, message: 'Client created successfully.' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/entries', async (req, res) => {
   try {
-    const entries = await dbAll(`
-      SELECT e.*, c.name as client_name 
-      FROM milk_entries e 
-      JOIN clients c ON e.client_id = c.id 
-      ORDER BY e.id DESC LIMIT 10
-    `);
+    const entries = await MilkEntry.find().sort({ _id: -1 }).limit(10).lean();
+    for (let entry of entries) {
+      const client = await Client.findOne({ id: entry.client_id });
+      entry.client_name = client ? client.name : 'Unknown';
+    }
     res.json(entries);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -97,22 +101,19 @@ app.post('/api/entries', async (req, res) => {
   try {
     const { client_id, date, session, weight, snf, fat, rate } = req.body;
     const total = parseFloat(weight) * parseFloat(rate);
-    await dbRun(
-      'INSERT INTO milk_entries (client_id, date, session, weight, snf, fat, rate, total) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [client_id, date, session, weight, snf, fat, rate, total]
-    );
+    const entry = new MilkEntry({ client_id, date, session, weight, snf, fat, rate, total });
+    await entry.save();
     res.json({ message: 'Entry recorded successfully.' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/payments', async (req, res) => {
   try {
-    const payments = await dbAll(`
-      SELECT p.*, c.name as client_name 
-      FROM payments p 
-      JOIN clients c ON p.client_id = c.id 
-      ORDER BY p.id DESC LIMIT 20
-    `);
+    const payments = await Payment.find().sort({ _id: -1 }).limit(20).lean();
+    for (let payment of payments) {
+      const client = await Client.findOne({ id: payment.client_id });
+      payment.client_name = client ? client.name : 'Unknown';
+    }
     res.json(payments);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -120,10 +121,8 @@ app.get('/api/payments', async (req, res) => {
 app.post('/api/payments', async (req, res) => {
   try {
     const { client_id, amount, date, note } = req.body;
-    await dbRun(
-      'INSERT INTO payments (client_id, amount, date, note) VALUES (?, ?, ?, ?)',
-      [client_id, amount, date, note]
-    );
+    const payment = new Payment({ client_id, amount, date, note });
+    await payment.save();
     res.json({ message: 'Payment recorded successfully.' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -131,14 +130,22 @@ app.post('/api/payments', async (req, res) => {
 app.get('/api/dashboard', async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
-    const clientsCount = await dbGet('SELECT COUNT(*) as count FROM clients');
-    const todayEntries = await dbGet('SELECT COUNT(*) as count, SUM(weight) as total_weight FROM milk_entries WHERE date = ?', [today]);
-    const totalRevenue = await dbGet('SELECT SUM(total) as revenue FROM milk_entries');
+    const clientsCount = await Client.countDocuments();
+    
+    const todayEntries = await MilkEntry.aggregate([
+      { $match: { date: today } },
+      { $group: { _id: null, count: { $sum: 1 }, total_weight: { $sum: "$weight" } } }
+    ]);
+
+    const totalRevenue = await MilkEntry.aggregate([
+      { $group: { _id: null, revenue: { $sum: "$total" } } }
+    ]);
+
     res.json({
-      activeClients: clientsCount.count || 0,
-      todayEntries: todayEntries.count || 0,
-      todayMilk: todayEntries.total_weight || 0,
-      totalRevenue: totalRevenue.revenue || 0,
+      activeClients: clientsCount || 0,
+      todayEntries: todayEntries.length > 0 ? todayEntries[0].count : 0,
+      todayMilk: todayEntries.length > 0 ? todayEntries[0].total_weight : 0,
+      totalRevenue: totalRevenue.length > 0 ? totalRevenue[0].revenue : 0,
       pendingBalance: 0
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -148,15 +155,13 @@ app.get('/api/billing', async (req, res) => {
   try {
     const { client_id, from_date, to_date } = req.query;
     if (!client_id) return res.status(400).json({error: 'Client ID required'});
-    const client = await dbGet('SELECT * FROM clients WHERE id = ?', [client_id]);
-    const entries = await dbAll(
-      'SELECT * FROM milk_entries WHERE client_id = ? AND date >= ? AND date <= ? ORDER BY date ASC',
-      [client_id, from_date, to_date]
-    );
-    const payments = await dbAll(
-      'SELECT SUM(amount) as paid FROM payments WHERE client_id = ? AND date >= ? AND date <= ?',
-      [client_id, from_date, to_date]
-    );
+    
+    const client = await Client.findOne({ id: client_id });
+    const entries = await MilkEntry.find({ client_id, date: { $gte: from_date, $lte: to_date } }).sort({ date: 1 }).lean();
+    const paymentsAgg = await Payment.aggregate([
+      { $match: { client_id, date: { $gte: from_date, $lte: to_date } } },
+      { $group: { _id: null, paid: { $sum: "$amount" } } }
+    ]);
     
     let totalWeight = 0;
     let totalAmount = 0;
@@ -165,7 +170,7 @@ app.get('/api/billing', async (req, res) => {
       totalAmount += parseFloat(e.total || 0);
     });
     
-    const paid = parseFloat(payments[0]?.paid || 0);
+    const paid = paymentsAgg.length > 0 ? parseFloat(paymentsAgg[0].paid || 0) : 0;
 
     res.json({
       client,
@@ -186,32 +191,32 @@ app.get('/api/reports', async (req, res) => {
     const from_date = `${month}-01`;
     const to_date = `${month}-31`; // Simplified for demo
     
-    const entries = await dbAll(`
-      SELECT e.client_id, c.name, SUM(e.weight) as total_weight, SUM(e.total) as total_amount
-      FROM milk_entries e
-      JOIN clients c ON e.client_id = c.id
-      WHERE e.date >= ? AND e.date <= ?
-      GROUP BY e.client_id
-    `, [from_date, to_date]);
+    const entriesAgg = await MilkEntry.aggregate([
+      { $match: { date: { $gte: from_date, $lte: to_date } } },
+      { $group: { _id: "$client_id", total_weight: { $sum: "$weight" }, total_amount: { $sum: "$total" } } }
+    ]);
+
+    const paymentsAgg = await Payment.aggregate([
+      { $match: { date: { $gte: from_date, $lte: to_date } } },
+      { $group: { _id: "$client_id", total_paid: { $sum: "$amount" } } }
+    ]);
     
-    const payments = await dbAll(`
-      SELECT client_id, SUM(amount) as total_paid
-      FROM payments WHERE date >= ? AND date <= ? GROUP BY client_id
-    `, [from_date, to_date]);
-    
-    const data = entries.map(e => {
-      const p = payments.find(p => p.client_id === e.client_id);
+    const data = [];
+    for (let e of entriesAgg) {
+      const client = await Client.findOne({ id: e._id });
+      const p = paymentsAgg.find(p => p._id === e._id);
       const paid = p ? p.total_paid : 0;
-      return {
-        ...e,
+      data.push({
+        client_id: e._id,
+        name: client ? client.name : 'Unknown',
+        total_weight: e.total_weight,
+        total_amount: e.total_amount,
         paid,
         balance: e.total_amount - paid
-      };
-    });
+      });
+    }
     
     res.json(data);
   } catch(err) { res.status(500).json({ error: err.message }) }
 });
 
-const PORT = 3001;
-app.listen(PORT, () => console.log(`Backend running on http://localhost:${PORT}`));

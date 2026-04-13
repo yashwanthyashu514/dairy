@@ -1,0 +1,8 @@
+{
+  "appId": "com.tejas.dairy",
+  "appName": "Tejas Dairy",
+  "webDir": "dist",
+  "server": {
+    "cleartext": true
+  }
+}

@@ -16,7 +16,7 @@ export default function AddClient() {
       navigate('/clients');
     } catch (err) {
       console.error(err);
-      alert('Error creating client');
+      alert('Error creating client: ' + (err.response?.data?.error || err.message));
     }
   };
 
