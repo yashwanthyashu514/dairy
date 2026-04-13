@@ -1,12 +1,8 @@
 import axios from 'axios';
 
-// Automatically choose the correct database address depending on the device:
-// - Computer Browser uses pure 'localhost' (perfectly bypasses any firewalls)
-// - Android Phone uses your Wi-Fi IP '10.40.121.210' (needed for mobile networks)
-const isMobileApp = !!window.Capacitor;
-
+// Automatically connect to the Render production server
 const api = axios.create({
-  baseURL: isMobileApp ? 'http://10.40.121.210:3001/api' : 'http://localhost:3001/api',
+  baseURL: 'https://tejas-backend-a2dj.onrender.com/api',
 });
 
 export default api;
