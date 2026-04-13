@@ -1,3 +1,4 @@
+// updated for render fix
 import express from 'express';
 import cors from 'cors';
 import mongoose from 'mongoose';
@@ -130,7 +131,7 @@ app.get('/api/dashboard', async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
     const clientsCount = await Client.countDocuments();
-    
+
     const todayEntries = await MilkEntry.aggregate([
       { $match: { date: today } },
       { $group: { _id: null, count: { $sum: 1 }, total_weight: { $sum: "$weight" } } }
@@ -153,22 +154,22 @@ app.get('/api/dashboard', async (req, res) => {
 app.get('/api/billing', async (req, res) => {
   try {
     const { client_id, from_date, to_date } = req.query;
-    if (!client_id) return res.status(400).json({error: 'Client ID required'});
-    
+    if (!client_id) return res.status(400).json({ error: 'Client ID required' });
+
     const client = await Client.findOne({ id: client_id });
     const entries = await MilkEntry.find({ client_id, date: { $gte: from_date, $lte: to_date } }).sort({ date: 1 }).lean();
     const paymentsAgg = await Payment.aggregate([
       { $match: { client_id, date: { $gte: from_date, $lte: to_date } } },
       { $group: { _id: null, paid: { $sum: "$amount" } } }
     ]);
-    
+
     let totalWeight = 0;
     let totalAmount = 0;
     entries.forEach(e => {
       totalWeight += parseFloat(e.weight || 0);
       totalAmount += parseFloat(e.total || 0);
     });
-    
+
     const paid = paymentsAgg.length > 0 ? parseFloat(paymentsAgg[0].paid || 0) : 0;
 
     res.json({
@@ -189,7 +190,7 @@ app.get('/api/reports', async (req, res) => {
     const { month } = req.query; // YYYY-MM
     const from_date = `${month}-01`;
     const to_date = `${month}-31`; // Simplified for demo
-    
+
     const entriesAgg = await MilkEntry.aggregate([
       { $match: { date: { $gte: from_date, $lte: to_date } } },
       { $group: { _id: "$client_id", total_weight: { $sum: "$weight" }, total_amount: { $sum: "$total" } } }
@@ -199,7 +200,7 @@ app.get('/api/reports', async (req, res) => {
       { $match: { date: { $gte: from_date, $lte: to_date } } },
       { $group: { _id: "$client_id", total_paid: { $sum: "$amount" } } }
     ]);
-    
+
     const data = [];
     for (let e of entriesAgg) {
       const client = await Client.findOne({ id: e._id });
@@ -214,8 +215,8 @@ app.get('/api/reports', async (req, res) => {
         balance: e.total_amount - paid
       });
     }
-    
+
     res.json(data);
-  } catch(err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { res.status(500).json({ error: err.message }) }
 });
 
